@@ -39,8 +39,7 @@ int sending_data(int fd,const char *str,size_t len)
 }
 // receivinf data-rx
 
-int reading_data(int fd)
-{
+int reading_data(int fd){
 	size_t len =  sizeof(buf_read)/sizeof(buf_read[0]);
 	int byte_read = read(fd,&buf_read[0], len);
 
@@ -52,16 +51,10 @@ int reading_data(int fd)
 }
 
 /*Add the serial port handle in the future*/
-int serial_release_handle(const int fd)
+void serial_release_handle(const int fd)
 {
-	int ret;
-
-	ret = close(fd);
-	if (ret == -1) {
-		perror("Failed to close GPIO LINEHANDLE device file");
-		ret = -errno;
-	}
-	return ret;
+	/*close the fd of tty*/
+	close(fd);
 }
 
 
@@ -99,8 +92,6 @@ int main(int argc, char** argv) {
 	int ret;
 
 	memset(&buf_read, '\0', sizeof(buf_read));
-
-
 	/*force to close the service changed with config*/
 	system("sudo systemctl stop serial-getty@ttyAMA0.service");
 
@@ -108,28 +99,8 @@ int main(int argc, char** argv) {
 
 	if (tty_fd < 0) {
 			printf("Failed to open port %s\n: %s\n" ,PORTNAME, strerror(errno));
-			close(tty_fd);
-			return (-1);
-	};
-	/*
-	//tcgetattr returns 1 if set, 0 if not set < 0 on error
-	if (tcgetattr (tty_fd, &options) < 0){
-                fprintf (stderr, "error %d from tcgetattr", errno);
-                return -1;
-    }
-	memset (&options, 0, sizeof options);
-	cfsetspeed(&options, BAUDRATE);
-	cfmakeraw(&options);
-	options.c_cflag &= ~CSTOPB;
-	options.c_cflag = CS8|CREAD|CLOCAL;// 8n1, see termios.h for more information
-	options.c_cc[VTIME]=1;	//
-	options.c_cc[VMIN]= 10;	// 1 seconds read timeout
-	//	tcsetattr
-	if (tcsetattr (tty_fd, TCSANOW, &options) != 0){
-                fprintf (stderr, "error=-%d %s from tcsetattr", errno, strerror(errno));
-                return -1;
-    }
-	*/
+			goto error_port_handler;
+	}
 	//setting attribute
 	tty_fd = SetInterfaceAttribs(tty_fd);
 	if(tty_fd < 0)
@@ -138,8 +109,7 @@ int main(int argc, char** argv) {
 	ret = sending_data(tty_fd, msgbuf,strlen(msgbuf));
 	if (ret < 0){
 		fprintf (stderr, "write failed:errno = -%d %s", errno, strerror(errno));
-		close(tty_fd);
-		return -1;
+		goto error_port_handler;
 	}
 	usleep(10000);
 	int bytes;
@@ -147,19 +117,22 @@ int main(int argc, char** argv) {
 	ret = ioctl(tty_fd, FIONREAD, &bytes);
 	if (ret < 0){
 		fprintf (stderr, "IOCTL failed:errno = -%d %s", errno, strerror(errno));
-		close(tty_fd);
-		return -1;
+		goto error_port_handler;
 	}
-	//sending data
+	//receving data	add the mechanism to check what of reading not work
 	ret = reading_data(tty_fd);
+	//printf("the return of the rx is %d\n",ret);
 	if (ret < 0){
 		fprintf (stderr, "READ failed: errno = -%d %s", errno, strerror(errno));
-		close(tty_fd);
-		return -1;
+		goto error_port_handler;
 	}
 	for(int i = 0; i< ret; i++)
    		printf("%c(%d %#x)\t", buf_read[i], buf_read[i], buf_read[i]);
 	printf("\n");
 	close(tty_fd);
 	return (EXIT_SUCCESS);
+
+error_port_handler:
+	serial_release_handle(tty_fd);
+	return -1;
 }
