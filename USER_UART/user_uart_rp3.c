@@ -16,6 +16,11 @@ const char *PORTNAME = "/dev/serial0";
 char *msgbuf = "FUCKSHIT";
 char buf_read[255];//2^8 = 255
 
+/*tty parameter*/
+struct termios options;
+int tty_fd;
+int ret;
+
 
 
 
@@ -46,21 +51,52 @@ int reading_data(int fd)
 	return byte_read;
 }
 
+/*Add the serial port handle in the future*/
+int serial_release_handle(const int fd)
+{
+	int ret;
+
+	ret = close(fd);
+	if (ret == -1) {
+		perror("Failed to close GPIO LINEHANDLE device file");
+		ret = -errno;
+	}
+	return ret;
+}
+
+
 
 //setting attribute
+int SetInterfaceAttribs(int fd)
+{
+	/*tty parameter*/
+	struct termios options;
 
+	//tcgetattr returns 1 if set, 0 if not set < 0 on error
+	if (tcgetattr (fd, &options) < 0){
+			fprintf (stderr, "error %d from tcgetattr", errno);
+			return -1;
+	}
+	memset (&options, 0, sizeof options);
+	cfsetspeed(&options, BAUDRATE);
+	cfmakeraw(&options);
+	options.c_cflag &= ~CSTOPB;
+	options.c_cflag = CS8|CREAD|CLOCAL;// 8n1, see termios.h for more information
+	options.c_cc[VTIME]=1;	//
+	options.c_cc[VMIN]= 10;	// 1 seconds read timeout
+	//	tcsetattr
+	if (tcsetattr (fd, TCSANOW, &options) != 0){
+			fprintf (stderr, "error=-%d %s from tcsetattr", errno, strerror(errno));
+			return -1;
+	}
+	return fd;
+}
 int main(int argc, char** argv) {
 
 	/*tty parameter*/
-	struct termios options;
+	//struct termios options;
 	int tty_fd;
 	int ret;
-
-	/*String && Buffer*/
-	//char msgbuf[8] = FUCKYOU;
-	//char *msgbuf = "FUCKSHIT";
-	//char buf_read[255];//2^8 = 255
-
 
 	memset(&buf_read, '\0', sizeof(buf_read));
 
@@ -72,8 +108,10 @@ int main(int argc, char** argv) {
 
 	if (tty_fd < 0) {
 			printf("Failed to open port %s\n: %s\n" ,PORTNAME, strerror(errno));
+			close(tty_fd);
 			return (-1);
 	};
+	/*
 	//tcgetattr returns 1 if set, 0 if not set < 0 on error
 	if (tcgetattr (tty_fd, &options) < 0){
                 fprintf (stderr, "error %d from tcgetattr", errno);
@@ -86,16 +124,22 @@ int main(int argc, char** argv) {
 	options.c_cflag = CS8|CREAD|CLOCAL;// 8n1, see termios.h for more information
 	options.c_cc[VTIME]=1;	//
 	options.c_cc[VMIN]= 10;	// 1 seconds read timeout
-	/*	tcsetattr	*/
+	//	tcsetattr
 	if (tcsetattr (tty_fd, TCSANOW, &options) != 0){
                 fprintf (stderr, "error=-%d %s from tcsetattr", errno, strerror(errno));
                 return -1;
     }
+	*/
+	//setting attribute
+	tty_fd = SetInterfaceAttribs(tty_fd);
+	if(tty_fd < 0)
+		return -1;
 	//writing data
 	ret = sending_data(tty_fd, msgbuf,strlen(msgbuf));
 	if (ret < 0){
 		fprintf (stderr, "write failed:errno = -%d %s", errno, strerror(errno));
 		close(tty_fd);
+		return -1;
 	}
 	usleep(10000);
 	int bytes;
@@ -104,12 +148,14 @@ int main(int argc, char** argv) {
 	if (ret < 0){
 		fprintf (stderr, "IOCTL failed:errno = -%d %s", errno, strerror(errno));
 		close(tty_fd);
+		return -1;
 	}
 	//sending data
 	ret = reading_data(tty_fd);
 	if (ret < 0){
 		fprintf (stderr, "READ failed: errno = -%d %s", errno, strerror(errno));
 		close(tty_fd);
+		return -1;
 	}
 	for(int i = 0; i< ret; i++)
    		printf("%c(%d %#x)\t", buf_read[i], buf_read[i], buf_read[i]);
